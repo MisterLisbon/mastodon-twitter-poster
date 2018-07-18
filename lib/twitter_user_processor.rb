@@ -51,6 +51,15 @@ class TwitterUserProcessor
       begin
         TwitterUserProcessor.new(t, user).process_tweet
         last_successful_tweet = t
+      rescue Twitter::Error::Forbidden => ex
+        unless ex.code == 326 || ex.code == 89
+          Rails.logger.error { "Could not process user #{user.twitter.uid}, tweet #{t.id}. -- #{ex} -- Bailing out" }
+          stats.increment("tweet.processing_error")
+          raise TweetError.new(ex)
+        end
+        # user is locked for spam or token was disabled/expired
+        user.posting_from_twitter = user.posting_from_mastodon = false;
+        NotifyUserDisabledService.new.call(user)
       rescue HTTP::ConnectionError => ex
         Rails.logger.warn { "Domain #{user.mastodon.mastodon_client.domain} seems offline" }
         stats.increment('domain.offline')
